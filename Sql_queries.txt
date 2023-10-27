@@ -1,0 +1,328 @@
+-- created a table in the database to import the data 
+CREATE TABLE healthcare_data(
+    metric_item_label text,
+    metric_cat_label text,
+    metric_subcat_label text,
+    metric_item_label_subtitle text,
+    metric_cat_item_yaxis_label text,
+    metric_source_desc_label_fn text,
+    metric_source_desc_label_url_fn text,
+    geo_label_city text,
+    geo_label_state text,
+    geo_label_citystate text,
+    geo_fips_code numeric,
+    value numeric,
+    date_label text,
+    geo_label_proxy_or_real text,
+    geo_label_proxy_footnote text,
+    geo_fips_desc text,
+    date_label_proxy_or_real text,
+    date_label_proxy_footnote text,
+    value_ci_flag_yesno text,
+    value_95_ci_low numeric,
+    value_95_ci_high numeric,
+    value_90_ci_low numeric,
+    value_90_ci_high numeric,
+    geo_strata_region text,
+    geo_strata_poverty text,
+    geo_strata_Population text,
+    geo_strata_PopDensity text,
+    strata_race_label text,
+    strata_sex_label text,
+    strata_race_sex_label text
+);
+
+-- Imported the data into the table
+COPY healthcare_data FROM 'path_to_your_csv_file.csv' DELIMITER ',' CSV HEADER;
+
+-- Removed the rows form the table where location data is approximate 
+DELETE FROM healthcare_data
+WHERE geo_label_proxy_or_real = 'proxy';
+
+-- Checking for missing values in the data
+SELECT
+	SUM(CASE WHEN metric_item_label IS NULL THEN 1 ELSE 0 END) AS metric_item_label,
+	SUM(CASE WHEN metric_cat_label IS NULL THEN 1 ELSE 0 END) AS metric_cat_label,
+	SUM(CASE WHEN geo_label_city IS NULL THEN 1 ELSE 0 END) AS geo_label_city,
+	SUM(CASE WHEN geo_label_state IS NULL THEN 1 ELSE 0 END) AS geo_label_state,
+    	SUM(CASE WHEN date_label IS NULL THEN 1 ELSE 0 END) AS date_label,
+    	SUM(CASE WHEN value_95_ci_high IS NULL THEN 1 ELSE 0 END) AS value_95_ci_high,
+    	SUM(CASE WHEN value_95_ci_low IS NULL THEN 1 ELSE 0 END) AS value_95_ci_low,
+    	SUM(CASE WHEN value IS NULL THEN 1 ELSE 0 END) AS value,
+	SUM(CASE WHEN geo_strata_poverty IS NULL THEN 1 ELSE 0 END) AS geo_strata_poverty,
+	SUM(CASE WHEN geo_strata_population IS NULL THEN 1 ELSE 0 END) AS geo_strata_population,
+	SUM(CASE WHEN geo_strata_popdensity IS NULL THEN 1 ELSE 0 END) AS geo_strata_popdensity
+FROM healthcare_data;
+
+-- Removed rows with missing data
+DELETE FROM healthcare_data
+WHERE value IS NULL OR geo_strata_poverty IS NULL;
+
+DELETE FROM healthcare_data
+where value_ci_flag_yesno = 'no';
+
+DELETE FROM healthcare_data
+where value_ci_flag_yesno = 'yes' and value_95_ci_low is null;
+
+-- Created a new table with columns required for the analysis, the column names are renamed into readable way
+CREATE TABLE healthcare_data_clean (
+    metric text,
+    category text,
+    category_label text,
+    city text,
+    "state" text,
+    date_label numeric,
+    value numeric,
+    value_95_ci_high numeric,
+    value_95_ci_low numeric,
+    poverty text,
+    population text,
+    population_density text
+);
+
+INSERT INTO healthcare_data_clean
+SELECT
+    metric_item_label,
+    metric_cat_label,
+	metric_cat_item_yaxis_label,
+    geo_label_city,
+    geo_label_state,
+	date_label::numeric,  -- Cast to numeric
+    value,
+    value_95_ci_high,
+	value_95_ci_low,
+	geo_strata_poverty,
+    geo_strata_Population,
+    geo_strata_PopDensity
+FROM healthcare_data;
+
+-- Set values in poverty column as bpl(below poverty line) and apl(above poverty line)
+UPDATE healthcare_data_clean
+SET poverty = CASE
+    WHEN poverty = 'Less poor cities (<20% poor)' THEN 'bpl'
+    WHEN poverty = 'Poorest cities (20%+ poor)' THEN 'apl'
+    ELSE poverty
+END;
+
+-- updated values in pop_density column into a simpler way
+UPDATE healthcare_data_clean
+SET population_density = CASE
+    WHEN population_density = 'Highest pop. density (>10k per sq mi)' THEN 'highest'
+    WHEN population_density = 'Lower pop. density (<10k per sq mi)' THEN 'lower'
+    ELSE population_density
+END;
+
+-- updating the state names 
+UPDATE healthcare_data_clean
+SET state = 
+    CASE
+        WHEN state = 'MN' THEN 'Minnesota'
+        WHEN state = 'PA' THEN 'Pennsylvania'
+        WHEN state = 'CA' THEN 'California'
+        WHEN state = 'MD' THEN 'Maryland'
+        WHEN state = 'OR' THEN 'Oregon'
+        WHEN state = 'TX' THEN 'Texas'
+        WHEN state = 'IL' THEN 'Illinois'
+        WHEN state = 'NV' THEN 'Nevada'
+        WHEN state = 'TN' THEN 'Tennessee'
+        WHEN state = 'KY' THEN 'Kentucky'
+        WHEN state = 'OH' THEN 'Ohio'
+        WHEN state = 'NY' THEN 'New York'
+        WHEN state = 'MI' THEN 'Michigan'
+        WHEN state = 'WA' THEN 'Washington'
+        WHEN state = 'MA' THEN 'Massachusetts'
+        WHEN state = 'IN' THEN 'Indiana'
+        WHEN state = 'DC' THEN 'District of Columbia'
+        WHEN state = 'MO' THEN 'Missouri'
+        WHEN state = 'CO' THEN 'Colorado'
+        WHEN state = 'NC' THEN 'North Carolina'
+        WHEN state = 'WI' THEN 'Wisconsin'
+        WHEN state = 'AZ' THEN 'Arizona'
+        WHEN state = 'OK' THEN 'Oklahoma'
+        ELSE state
+    END;
+
+
+-- Create the normalized_value column with default value 0.
+ALTER TABLE healthcare_data_clean ADD COLUMN normalized_value numeric DEFAULT 0;
+
+-- Update normalized_value for metrics in percentage.
+UPDATE healthcare_data_clean
+SET normalized_value = value
+WHERE category_label = 'Percent';
+
+-- Update normalized_value for metrics with values per 100k.
+UPDATE healthcare_data_clean
+SET normalized_value = (value / 1000) -- Divide by 1000 to convert to percentage
+WHERE category_label like '%100,000%';
+
+-- Update normalized_value for metrics with values per 1k.
+UPDATE healthcare_data_clean
+SET normalized_value = (value / 10) -- Assuming values are per 1k, so divide by 10 to get percentages
+WHERE category_label like '%1,000%';
+
+
+-------------------- analysis ---------------------
+
+--Number of unique metrics in the dataset
+SELECT count(distinct metric) FROM healthcare_data_clean;
+
+--Number of unique categories in the dataset
+SELECT count(distinct category) FROM healthcare_data_clean;
+
+--List of unique categories and their corresponding metrics.
+select distinct category, metric from healthcare_data_clean order by category;
+
+--Count of metrics per category	
+SELECT category,count(distinct metric)
+FROM healthcare_data_clean
+group by category
+order by category;
+
+--Average values for health metrics by grouping data based on metric.
+SELECT category, metric, round(AVG(value),2) AS avg_value, category_label
+FROM healthcare_data_clean
+GROUP BY category, metric, category_label
+ORDER BY category;
+
+--Average COVID-19 deaths by city, sorted in descending order.
+SELECT state, city, round(AVG(value),2) AS avg_value, category_label
+FROM healthcare_data_clean
+WHERE metric = 'COVID-19 Deaths'
+GROUP BY state, city, category_label
+ORDER BY avg_value desc;
+
+--States ranked by average COVID-19 death rate.
+SELECT
+    state,
+    round(AVG(value), 2) AS avg_value,
+    category_label,
+    RANK() OVER (ORDER BY AVG(value) DESC) AS state_rank
+FROM healthcare_data_clean
+WHERE metric = 'COVID-19 Deaths'
+GROUP BY state, category_label;
+
+--Rankings based on average normalized values for lower and highest population density areas.
+WITH ranked_metrics AS (
+    SELECT
+        metric,
+        AVG(normalized_value) AS low_density_avg_value
+    FROM healthcare_data_clean
+    WHERE population_density = 'lower'
+    GROUP BY metric
+), 
+ranked_metrics_2 AS (
+    SELECT
+        metric,
+        AVG(normalized_value) AS high_density_avg_value
+    FROM healthcare_data_clean
+    WHERE population_density = 'highest'
+    GROUP BY metric
+)
+
+SELECT
+    r1.metric,
+    low_density_avg_value,
+    RANK() OVER (ORDER BY low_density_avg_value DESC) AS l_rank,
+    high_density_avg_value,
+    RANK() OVER (ORDER BY high_density_avg_value DESC) AS h_rank
+FROM ranked_metrics AS r1
+JOIN ranked_metrics_2 AS r2
+ON r1.metric = r2.metric;
+
+--Rankings based on average normalized values for health metrics in below poverty level and above poverty level areas.
+WITH ranked_metrics AS (
+    SELECT
+        metric,
+        AVG(normalized_value) AS below_poverty_level_value
+    FROM healthcare_data_clean
+    WHERE poverty = 'bpl'
+    GROUP BY metric
+), 
+ranked_metrics_2 AS (
+    SELECT
+        metric,
+        AVG(normalized_value) AS above_poverty_level_value
+    FROM healthcare_data_clean
+    WHERE poverty = 'apl'
+    GROUP BY metric
+)
+
+SELECT
+    r1.metric,
+    below_poverty_level_value,
+    RANK() OVER (ORDER BY below_poverty_level_value DESC) AS l_rank,
+    above_poverty_level_value,
+    RANK() OVER (ORDER BY above_poverty_level_value DESC) AS h_rank
+FROM ranked_metrics AS r1
+JOIN ranked_metrics_2 AS r2
+ON r1.metric = r2.metric;
+
+--Rankings based on average normalized values for health metrics in smaller and larger population areas.
+WITH ranked_metrics AS (
+    SELECT
+        metric,
+        AVG(normalized_value) AS smaller_population_value
+    FROM healthcare_data_clean
+    WHERE population = 'Smaller (<1.3 million)'
+    GROUP BY metric
+), 
+ranked_metrics_2 AS (
+    SELECT
+        metric,
+        AVG(normalized_value) AS large_population_value
+    FROM healthcare_data_clean
+    WHERE population = 'Largest (>1.3 million)'
+    GROUP BY metric
+)
+
+SELECT
+    r1.metric,
+    smaller_population_value,
+    RANK() OVER (ORDER BY smaller_population_value DESC) AS l_rank,
+    large_population_value,
+    RANK() OVER (ORDER BY large_population_value DESC) AS h_rank
+FROM ranked_metrics AS r1
+JOIN ranked_metrics_2 AS r2
+ON r1.metric = r2.metric;
+
+--year-wise trend analysis
+--calculates the average values of diabetes deaths for various years
+SELECT date_label, round(AVG(value),2) AS avg_value
+FROM healthcare_data_clean
+WHERE metric = 'Diabetes Deaths'
+GROUP BY date_label
+ORDER BY date_label;	
+
+--Correlation calculation
+select corr(v1, v2) from
+(select value as v1 from healthcare_data_clean where metric = 'Diabetes') as s1,
+(select value as v2 from healthcare_data_clean where metric = 'Adult Obesity') as s2;
+
+--Calculates and compares the average values of health metrics for above and below poverty levels within various categories
+SELECT
+    metric,
+    round(avg(CASE WHEN poverty = 'apl' THEN value END),1) AS above_poverty_level,
+    round(avg(CASE WHEN poverty = 'bpl' THEN value END),1) AS below_poverty_level,
+	category_label
+FROM
+    healthcare_data_clean
+GROUP BY 
+	metric,category_label;
+
+--Calculates the state-wise average values of all metrics within a specific category.
+SELECT category, metric, category_label, state, round(avg(value),2)
+FROM healthcare_data_clean
+where category = 'Access to Health Services'
+group by category, metric, category_label, state
+order by state;
+
+--Category Average Analysis
+select category, avg(normalized_value) as avg_value
+from healthcare_data_clean
+group by category
+order by avg_value desc;
+
+
+
+
