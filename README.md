@@ -18,11 +18,11 @@ The dataset consists of data from various cities in the United States, covering 
 ## Files in the Repository:
 - [**BigCitiesHealth.csv**](BigCitiesHealth.csv): The main dataset.
 - [**DataCleaningandPreparation.pdf**](DataCleaningandPreparation.pdf): An overview of data cleaning and preparation steps, including table creation, data import, handling of approximate location data, addressing missing values, data transformation, and normalization.
-- [**healthcare_data_clean.csv**](healthcare_data_clean.csv): The dataset exported from the database after cleaning operations.
+- [**healthcare_data_clean.xlsx**](healthcare_data_clean.xlsx): The dataset exported from the database after cleaning operations.
 - [**DataAnalysis.pdf**](DataAnalysis.pdf): Provides insights into the dataset, explores relationships between health metrics, and ranks health metrics based on normalized values in different contexts. These findings are vital for further research and decision-making.  
 **Note**: The outputs presented here are partial samples. For the full results, it is recommended to execute the queries locally to access complete findings.
 - [**Sql_queries.txt**](Sql_queries.txt): Contains all SQL queries used in data cleaning and analysis. Feel free to use them locally for your analysis.
-- [**U.S. Public Health Metrics Dashboard.png**](U.S.-Public-Health-Metrics-Dashboard.png):This dashboard leverages the dataset to provide visual insights, presenting data in five distinct visuals:  
+- [U.S. Public Health Metrics Dashboard.png](U.S.%20Public%20Health%20Metrics%20Dashboard.png): This dashboard leverages the dataset to provide visual insights, presenting data in five distinct visuals:  
 **Categories:** The dashboard categorizes data for clarity and organization.  
 **Metrics:** Metrics within each category are presented using a stacked bar chart.  
 **State Data:** Geographic distribution and information are visualized through maps.  
